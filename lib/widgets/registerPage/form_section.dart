@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:utspbb_2021130020/widgets/registerPage/text_register.dart';
+import 'package:utspbb_2021130020/screens/authentication/verify_otp.dart';
+import 'package:utspbb_2021130020/services/auth_service.dart';
 
 class FormSection extends StatefulWidget {
   const FormSection({Key? key}) : super(key: key);
@@ -16,6 +18,7 @@ class _FormSectionState extends State<FormSection> {
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
   bool _isLoading = false;
+  bool _isGoogleLoading = false;
   Color passwordTextColor = Colors.black; // Warna default untuk text
 
   @override
@@ -28,23 +31,23 @@ class _FormSectionState extends State<FormSection> {
 
   String? validateUsername(String? value) {
     if (value!.isEmpty) {
-      return 'Email cannot be empty';
+      return 'Email tidak boleh kosong';
     }
     return null;
   }
 
   String? validatePassword(String? value) {
     if (value!.isEmpty) {
-      return 'Password cannot be empty';
+      return 'Password tidak boleh kosong';
     } else if (value.length < 8) {
-      return 'Password must be at least 8 characters long';
+      return 'Password harus lebih dari 8 karakter';
     }
     return null;
   }
 
   String? validateConfirmPassword(String? value) {
     if (value != _passwordController.text) {
-      return 'Passwords do not match';
+      return 'Passwords tidak sama';
     }
     return null;
   }
@@ -184,7 +187,7 @@ class _FormSectionState extends State<FormSection> {
     );
   }
 
-  void handleLoginButtonPressed() {
+  void handleRegisterButtonPressed() async {
     String? usernameError = validateUsername(_usernameController.text);
     String? passwordError = validatePassword(_passwordController.text);
     String? confirmPasswordError =
@@ -197,22 +200,62 @@ class _FormSectionState extends State<FormSection> {
         _isLoading = true;
       });
 
-      Future.delayed(const Duration(seconds: 2), () {
+      try {
+        // Panggil fungsi register
+        final response = await AuthService().register(
+          _usernameController.text,
+          _passwordController.text,
+          _confirmPasswordController.text,
+        );
+
+        // Debug log untuk memastikan respons
+        print('Register Response: $response');
+
+        // Verifikasi status respon API
+        if (response['status'] == true) {
+          // Periksa status true
+          // Tampilkan success snackbar
+          showSuccessSnackBar(response['message'] ?? 'Pendaftaran berhasil!');
+          // Navigasi ke layar OTP
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(
+              builder: (context) => OTPScreen(
+                email: _usernameController.text,
+                // Kirimkan OTP
+              ),
+            ),
+          );
+        } else if (response['status'] == false) {
+          // Jika status adalah false, periksa apakah ada error pada email
+          if (response['data'] != null && response['data']['email'] != null) {
+            // Jika email sudah digunakan
+            if (response['data']['email'].contains('validation.unique')) {
+              showErrorSnackBar('Email sudah digunakan');
+            } else {
+              // Menampilkan error message lain jika ada
+              showErrorSnackBar(response['message'] ?? 'Terjadi kesalahan');
+            }
+          } else {
+            showErrorSnackBar(response['message'] ?? 'Terjadi kesalahan');
+          }
+        } else {
+          // Default error handling jika status tidak dikenali
+          showErrorSnackBar(response['message'] ?? 'Terjadi kesalahan');
+        }
+      } catch (error) {
+        // Tampilkan pesan error jika terjadi exception
+        final errorMessage = error is String ? error : 'Terjadi kesalahan.';
+        showErrorSnackBar(errorMessage);
+      } finally {
         setState(() {
           _isLoading = false;
         });
-        // Handle success or failure
-      });
+      }
     } else {
-      if (usernameError != null) {
-        showErrorSnackBar(usernameError);
-      }
-      if (passwordError != null) {
-        showErrorSnackBar(passwordError);
-      }
-      if (confirmPasswordError != null) {
-        showErrorSnackBar(confirmPasswordError);
-      }
+      // Tampilkan validasi error jika ada
+      if (usernameError != null) showErrorSnackBar(usernameError);
+      if (passwordError != null) showErrorSnackBar(passwordError);
+      if (confirmPasswordError != null) showErrorSnackBar(confirmPasswordError);
     }
   }
 
@@ -260,9 +303,53 @@ class _FormSectionState extends State<FormSection> {
     );
   }
 
+  void showSuccessSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: Colors.green[50],
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10),
+          side: const BorderSide(color: Colors.green),
+        ),
+        content: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          mainAxisAlignment: MainAxisAlignment.start,
+          children: [
+            const Icon(Icons.check_circle, color: Colors.green),
+            SizedBox(width: MediaQuery.of(context).size.width * 0.05),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Successful!',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                    fontFamily: 'poppins',
+                    fontSize: 12,
+                  ),
+                ),
+                Text(
+                  message,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.normal,
+                    color: Colors.black,
+                    fontFamily: 'poppins',
+                    fontSize: 12,
+                  ),
+                ),
+              ],
+            )
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget buildLoginButton() {
     return ElevatedButton(
-      onPressed: _isLoading ? null : handleLoginButtonPressed,
+      onPressed: _isLoading ? null : handleRegisterButtonPressed,
       child: _isLoading
           ? const CircularProgressIndicator(
               strokeWidth: 2,
@@ -320,18 +407,27 @@ class _FormSectionState extends State<FormSection> {
 
   Widget buildLoginGoogle() {
     return ElevatedButton(
-      onPressed: _isLoading
+      onPressed: _isGoogleLoading
           ? null
-          : handleLoginButtonPressed, // Tambahkan kondisi _isLoading
-      child: _isLoading
+          : () {
+              setState(() {
+                _isGoogleLoading = true;
+              });
+
+              // Simulasi proses login Google
+              Future.delayed(const Duration(seconds: 2), () {
+                setState(() {
+                  _isGoogleLoading = false;
+                });
+              });
+            },
+      child: _isGoogleLoading
           ? CircularProgressIndicator(
-              strokeWidth: 2, // Ketebalan garis lingkaran
-              valueColor:
-                  AlwaysStoppedAnimation<Color>(Colors.blue), // Warna indikator
-              backgroundColor: Colors.grey, // Warna latar belakang indikator
-            ) // Tampilkan CircularProgressIndicator jika _isLoading true
-          : const Text(
-              'Sign in with Google'), // Tampilkan teks Login jika _isLoading false
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.blue),
+              backgroundColor: Colors.grey,
+            )
+          : const Text('Sign in with Google'),
       style: ElevatedButton.styleFrom(
         backgroundColor: Colors.white,
         foregroundColor: Colors.grey,
@@ -345,8 +441,8 @@ class _FormSectionState extends State<FormSection> {
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(15),
           side: BorderSide(
-            color: Colors.grey.shade300, // Warna border abu-abu
-            width: 1, // Ketebalan border
+            color: Colors.grey.shade300,
+            width: 1,
           ),
         ),
         shadowColor: Colors.black.withOpacity(0.2),
